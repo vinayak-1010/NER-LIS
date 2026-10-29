@@ -1,0 +1,79 @@
+services:
+  # ────────────────────────────────────────────────────────────────────────────
+  # PostgreSQL + PostGIS
+  # ────────────────────────────────────────────────────────────────────────────
+  db:
+    image: postgis/postgis:15-3.4
+    container_name: ner_lis_db
+    environment:
+      POSTGRES_DB: ner_lis
+      POSTGRES_USER: ner_user
+      POSTGRES_PASSWORD: ner_password
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ner_user -d ner_lis"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ────────────────────────────────────────────────────────────────────────────
+  # Redis
+  # ────────────────────────────────────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: ner_lis_redis
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ────────────────────────────────────────────────────────────────────────────
+  # FastAPI Backend
+  # ────────────────────────────────────────────────────────────────────────────
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: ner_lis_backend
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql://ner_user:ner_password@db:5432/ner_lis
+      REDIS_URL: redis://redis:6379
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./backend:/app
+      - ./ml/models:/app/ml/models
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  # ────────────────────────────────────────────────────────────────────────────
+  # Next.js Frontend
+  # ────────────────────────────────────────────────────────────────────────────
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: ner_lis_frontend
+    environment:
+      NEXT_PUBLIC_API_URL: http://localhost:8000
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+      - /app/.next
+    depends_on:
+      - backend
+
+volumes:
+  pgdata:
